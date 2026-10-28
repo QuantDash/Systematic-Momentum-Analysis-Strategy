@@ -9,6 +9,9 @@ questions.txt
 about.txt
 simulator.py
 visualizer.py
+generate_research_study.py
+cache
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

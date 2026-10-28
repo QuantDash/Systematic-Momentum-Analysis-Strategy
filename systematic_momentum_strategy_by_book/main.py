@@ -61,8 +61,8 @@ def run_backtest():
     strategy = SystematicMomentumStrategy(
         momentum_window=90, # 125
         vola_window=20, 
-        index_window=100, # 200 
-        min_momentum=30.0,  # 40
+        index_window=200, # 200 
+        min_momentum=40.0,  # 40
         portfolio_size=30
     )
     
@@ -103,18 +103,24 @@ def run_backtest():
         rf_rate = 6.5
         sharpe = (cagr - rf_rate) / ann_vol if ann_vol > 0 else 0.0
         
-        # 5. Benchmark Performance
-        bench_ret = None
-        bench_cagr = None
-        if not df_index.empty:
-            bench_start = df_index['close'].iloc[0]
-            bench_end = df_index['close'].iloc[-1]
-            bench_ret = (bench_end / bench_start - 1) * 100
-            bench_cagr = (np.power(bench_end / bench_start, 1.0 / n_years) - 1) * 100 if n_years > 0 else bench_ret
+        # 5. Benchmark Performance (Properly Aligned to Strategy Horizon)
+        bench_ret, bench_cagr, bench_vol, bench_sharpe = None, None, None, None
+        if 'benchmark_close' in results_df.columns:
+            bench_series = results_df['benchmark_close'].dropna()
+            if not bench_series.empty:
+                bench_start = bench_series.iloc[0]
+                bench_end = bench_series.iloc[-1]
+                bench_ret = (bench_end / bench_start - 1) * 100
+                bench_cagr = (np.power(bench_end / bench_start, 1.0 / n_years) - 1) * 100 if n_years > 0 else bench_ret
+                
+                bench_daily = bench_series.pct_change().dropna()
+                bench_vol = bench_daily.std() * np.sqrt(252) * 100 if len(bench_daily) > 1 else 0.0
+                bench_sharpe = (bench_cagr - rf_rate) / bench_vol if bench_vol > 0 else 0.0
             
         # 6. Trade Execution Performance (Quant Standard: Separate Completed Exits from Rebalance Trims)
         trades = simulator.trades_df
         total_records = len(trades)
+        total_realized_pnl = trades['realized_pnl'].sum() if total_records > 0 else 0.0
         
         # Completed Exits (full round-trip closed positions)
         exits = trades[trades['action'] == 'EXIT'] if total_records > 0 else pd.DataFrame()
@@ -138,6 +144,7 @@ def run_backtest():
         print(f"Backtest Duration   : {n_trading_days} Trading Days ({n_years:.2f} Years)")
         print(f"Initial Capital     : Rs. {INITIAL_CAPITAL:,.2f}")  
         print(f"Final Portfolio     : Rs. {val.iloc[-1]:,.2f}")
+        print(f"Net Realized PnL    : Rs. {total_realized_pnl:+,.2f}")
         print("--------------------------------------------------------")
         print(f"Strategy Return     : {tot_ret:+.2f}% (Cumulative)")
         print(f"Strategy CAGR       : {cagr:+.2f}% (Annualized)")
@@ -147,9 +154,14 @@ def run_backtest():
             print(f"Alpha (Cumulative)  : {(tot_ret - bench_ret):+.2f}%")
             print(f"Alpha (Annualized)  : {(cagr - bench_cagr):+.2f}%")
         print("--------------------------------------------------------")
-        print(f"Annualized Volatility: {ann_vol:.2f}%")
-        print(f"Max Drawdown        : {max_dd:.2f}%")
-        print(f"Sharpe Ratio (Rf=6.5%): {sharpe:.2f}")
+        if bench_vol is not None and bench_sharpe is not None:
+            print(f"Annualized Volatility: {ann_vol:.2f}%  |  NIFTY 500: {bench_vol:.2f}%")
+            print(f"Max Drawdown        : {max_dd:.2f}%")
+            print(f"Sharpe Ratio (Rf=6.5%): {sharpe:.2f}  |  NIFTY 500: {bench_sharpe:.2f}")
+        else:
+            print(f"Annualized Volatility: {ann_vol:.2f}%")
+            print(f"Max Drawdown        : {max_dd:.2f}%")
+            print(f"Sharpe Ratio (Rf=6.5%): {sharpe:.2f}")
         print("----------------- TRADE EXECUTION STATS ----------------")
         print(f"Total Completed Exits: {total_exits} (Plus {total_trims} Rebalance Trims | {total_buys} Buys)")
         print(f"Exit Win Rate        : {exit_win_rate:.1f}% ({len(exit_wins)} Wins / {len(exit_losses)} Losses)")
